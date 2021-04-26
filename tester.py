@@ -75,7 +75,7 @@ def replacer(old, new, string):
         tmp = re.sub(old, new, tmp)
     return tmp
 
-for item in os.listdir("out"):
+for item in os.listdir("Original"):
     
     res = ""
     tmp = ""
@@ -184,12 +184,12 @@ for item in os.listdir("out"):
         try:
             with open(os.path.join("Successful", name+".txt"), 'w') as newFile:
                 newFile.write(data)
-            os.rename(os.path.join("out", item), os.path.join("OK", name+".txt"))
+            os.rename(os.path.join("Original", item), os.path.join("OK", name+".txt"))
         except Exception as e:
             print(f'Failure in success proccess, got the following error: {e}')
     else:
         try:
-            os.rename(os.path.join("out", item), os.path.join("Failed", name+".txt"))
+            os.rename(os.path.join("Original", item), os.path.join("Failed", name+".txt"))
         except Exception as e:
             print(f'Failure in failure proccess, got the following error: {e}')
         err = open(os.path.join("Errors", item+"_error.log"), "w")
