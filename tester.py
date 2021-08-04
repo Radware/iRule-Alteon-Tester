@@ -11,6 +11,8 @@ AlteonCreds = base64.b64encode(f'{AlteonUname}:{AlteonPasswd}'.encode('ascii')).
 headers = { 'Authorization': f'Basic {AlteonCreds}', 'Content-Type': 'text/plain;charset=UTF-8' }
 out = open("Apply_test_result.txt", "w+")
 def test_script(data, name):
+    if "/" in name:
+        name = name.split("/")[-1]
     while True:
         r=requests.post(f"https://{AlteonMgmt}/config?action=revert", headers=headers, verify=False)
         if loads(r.text)["status"] == "ok":
@@ -79,7 +81,7 @@ for item in os.listdir("Original"):
     
     res = ""
     tmp = ""
-    with open(os.path.join("out", item)) as f:
+    with open(os.path.join("Original", item)) as f:
         data = f.read().splitlines()
     name = data[0].split()[2]
     # remove comments
