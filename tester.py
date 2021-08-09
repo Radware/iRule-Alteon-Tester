@@ -1,4 +1,4 @@
-import requests, os, urllib3, re, base64
+import requests, os, urllib3, re, base64, sys
 from json import loads
 from time import sleep
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -11,8 +11,6 @@ AlteonCreds = base64.b64encode(f'{AlteonUname}:{AlteonPasswd}'.encode('ascii')).
 headers = { 'Authorization': f'Basic {AlteonCreds}', 'Content-Type': 'text/plain;charset=UTF-8' }
 out = open("Apply_test_result.txt", "w+")
 def test_script(data, name):
-    if "/" in name:
-        name = name.split("/")[-1]
     while True:
         r=requests.post(f"https://{AlteonMgmt}/config?action=revert", headers=headers, verify=False)
         if loads(r.text)["status"] == "ok":
@@ -77,18 +75,54 @@ def replacer(old, new, string):
         tmp = re.sub(old, new, tmp)
     return tmp
 
+def iRuleExtracter (cfg):
+    iRules = list()
+    flag = 0
+    braketCounter = 0
+    iRule = ""
+    for line in f.splitlines():
+        if flag:
+            iRule += line + "\n"
+            braketCounter = braketCounter + line.count('{')
+            braketCounter = braketCounter - line.count('}')
+        if line[:9] == "ltm rule ":
+            flag = 1
+            braketCounter = 1
+            name = line[10:-1].split()[-1]
+            if "/" in name:
+                name = name.split("/")[-1]
+            iRule += line + "\n"
+        if flag and braketCounter == 0:
+            flag = 0
+            iRules.append(iRule)
+            iRule = ""
+    return iRules
+
 for item in os.listdir("Original"):
-    
+    f = open(os.path.join("Original", item)).read()
+    iRules = iRuleExtracter(f)
+
+for script in iRules:
     res = ""
     tmp = ""
-    with open(os.path.join("Original", item)) as f:
-        data = f.read().splitlines()
+    data = script.splitlines()
     name = data[0].split()[2]
+    if "/" in name:
+        name = name.split("/")[-1]
+
+    print(f'Working on {name} ', end="...")
     # remove comments
     data = "\n".join([ line for line in data[1:-1] if not re.match(r'^(\s)*#', line) and len(line)>0])
-    # Add space between curly brackets
-    data = data.replace('}{', '} {')
     
+    # adjust curly brackets
+    data = replacer(r'}\s+{', '}{',data)
+    data = data.replace(r'}{', '} {')
+    data = replacer(r'}\s\s+else', '} else',data)
+
+    
+    # Correct reselect
+    data = data.replace('LB::reselect node ', 'LB::reselect group [LB::server group] server ')
+
     # Correct clock command syntax
     data = data.replace("clock clicks -milliseconds", "clock milliseconds")
     
@@ -97,7 +131,6 @@ for item in os.listdir("Original"):
 
     # Adjust curly brackets blocks opennings
     data = replacer(r'\n\s*{\s*\n', r'{\n', data)
-
     # Replace Node command to Host command
     data = replacer(r'\n(\s*)node', r'\n\1host', data)
 
@@ -119,9 +152,19 @@ for item in os.listdir("Original"):
     # remove priority from events
     data = replacer(r'when ([A-Z]+_[A-Z]+) (priority \d+) {', r'when \1 {', data)
 
+    # remove priority before event
+    data = replacer(r'priority \d+\nwhen ([A-Z]+_[A-Z]+) {', r'when \1 {', data)
+
+    # remove "iApp marker"
+    data = replacer(r'[ \t]+app-service.+\nwhen ([A-Z]+_[A-Z]+) {', r'when \1 {', data)
+    data = replacer(r'[ \t]+app-service .+\n(.*\n)when ([A-Z]+_[A-Z]+) {', r'\1when \2 {', data)
+
     # replace "use pool" with "group" command
     data = replacer(r'(\n\s*)use pool ([^\s])', r'\1group select \2', data)
     
+    # replace "matchclass" with "class match" command
+    data = replacer(r'\[ ?matchclass(.+\])', r'[class match \1', data)
+
     # replace "getfield" and "findstr" commands with AS syntax
     cfg = ""
     for line in data.splitlines():
@@ -186,16 +229,13 @@ for item in os.listdir("Original"):
         try:
             with open(os.path.join("Successful", name+".txt"), 'w') as newFile:
                 newFile.write(data)
-            os.rename(os.path.join("Original", item), os.path.join("OK", name+".txt"))
+            print("Successfull!")
         except Exception as e:
             print(f'Failure in success proccess, got the following error: {e}')
     else:
-        try:
-            os.rename(os.path.join("Original", item), os.path.join("Failed", name+".txt"))
-        except Exception as e:
-            print(f'Failure in failure proccess, got the following error: {e}')
-        err = open(os.path.join("Errors", item+"_error.log"), "w")
+        err = open(os.path.join("Errors", name+"_error.log"), "w")
         failed_cmd=re.search(r"invalid command name\s+([^\s]+)", res)
+        print("Failed!")
         if failed_cmd and failed_cmd.group(1):
             err.write(f"Finished testing script: '{name}', Encountered an unsupported command {failed_cmd.group(1)}\n,full result:\n{res}\n, tested script was:\n{data}")
             out.write(f"Finished testing script: '{name}', Encountered an unsupported command '{failed_cmd.group(1)}'\n")
